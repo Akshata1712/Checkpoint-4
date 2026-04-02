@@ -1,220 +1,354 @@
+<div align="center">
 
-#  Claim Denial Prediction System
+# 🏥 Claim Denial Prediction System
+
+### An End-to-End Machine Learning Pipeline for Healthcare Claims Analytics
+
+> **Predict. Classify. Explain.** — A three-stage ML pipeline that flags denied claims before they happen, categorizes denial type, and pinpoints the reasons — reducing revenue leakage and operational overhead.
+
+</div>
+
 
 ## 🚀 Overview
 
-This project builds an end-to-end machine learning pipeline to predict:
+Healthcare claim denials cost providers **billions of dollars annually** in rework, appeals, and lost revenue. This project builds an intelligent prediction system that operates in three stages:
 
-- **Denial Probability** (Binary Classification)
-- **Denial Type** (Multi-Class Classification)
-- **Denial Reasons** (Multi-Label Classification)
+| Stage | Task | Type | Output |
+|-------|------|------|--------|
+| 🔴 Stage 1 | Will this claim be denied? | Binary Classification | `DenialFlag` (0 or 1) |
+| 🟡 Stage 2 | What *type* of denial is it? | Multi-Class Classification | `N / P / Z / F` |
+| 🟢 Stage 3 | *Why* will it be denied? | Multi-Label Classification | Up to 26 denial reason codes |
 
-The system processes raw claim data, performs feature engineering, and uses multiple models to generate structured predictions.
+This cascade approach mirrors real-world claim adjudication workflows, making predictions actionable and interpretable.
 
+---
 
 ## 📊 Dataset
 
-- Initial dataset: **1,000,000 rows × 39 columns**
-- Final dataset after cleaning: **926,015 rows**
+| Property | Value |
+|----------|-------|
+| Raw Records | **1,000,000** rows |
+| Features (raw) | **39** columns |
+| Records after cleaning | **926,015** rows |
+| Final feature count | **23** numeric features |
 
-### Data Includes:
-- Claim-level details
-- Financial attributes
-- Provider & payer information
-- Diagnosis codes
-- Service & billing dates
+### Data Domains
 
+```
+📁 Claim Data
+├── 🏷️  Claim-level details     (Clinic, Service, CPTCode, AmountCharged)
+├── 💰  Financial attributes    (CoPay, Deduc, CoIns, TotalPaid)
+├── 🏢  Provider & Payer info   (Provider, Payer, BillingProviderNPI)
+├── 🩺  Diagnosis codes         (f21diag1)
+└── 📅  Service & billing dates (ServiceDt, ClaimBillDate, f11insdob)
+```
 
+---
 
-##  Data Preprocessing
+## 🏗️ Pipeline Architecture
 
-###  Removing Data Leakage
-Removed columns that directly reveal outcomes:
-TotalPaid, TotalAdj, Balance, CltResp, cliANSI1, cliANSI2, lastActDt
+```
+Raw CSV (1M rows)
+      │
+      ▼
+┌─────────────────────────┐
+│   Data Preprocessing     │  Remove leakage, identifiers, parse dates
+└───────────┬─────────────┘
+            │
+            ▼
+┌─────────────────────────┐
+│   Feature Engineering    │  Frequency encoding + date features → 23 features
+└───────────┬─────────────┘
+            │
+      ┌─────┴──────┐
+      │            │
+      ▼            ▼
+ Binary (X)   Multi-class (X)   ← same features, different targets
+      │            │
+      ▼            ▼
+ Random        Random Forest /
+ Forest         XGBoost / MLP
+      │            │
+      └─────┬──────┘
+            │
+            ▼
+    Multi-label (X, y: 26 labels)
+            │
+            ▼
+    Classifier Chains (RF)
+            │
+            ▼
+     Structured Predictions
+```
 
+---
 
+## 🧹 Data Preprocessing
 
-###  Removing Identifiers
-TPCLIID, LIATPCLIid, ClaimID, ClientID
+### 🔒 Removing Data Leakage
+Columns that directly reveal claim outcomes were dropped to prevent target leakage:
 
+```python
+leakage_cols = ["TotalPaid", "TotalAdj", "TotalVoid", "Balance",
+                "CltResp", "cliANSI1", "cliANSI2", "lastActDt"]
+```
 
-###  Date Processing
-Converted:ServiceDt, ClaimBillDate, f11insdob
+### 🪪 Removing Identifiers
+```python
+id_cols = ["TPCLIID", "LIATPCLIid", "ClaimID", "ClientID"]
+```
 
+### 🎯 Target Engineering
 
+**Binary Target** (`DenialFlag`): 73,985 null records dropped before binarizing.
 
-###  Numeric Conversion
-Handled monetary and numeric fields using coercion.
+**Multi-Class Target** (`MultiFlag`):
 
+| Label | Meaning | Records | Proportion |
+|-------|---------|---------|------------|
+| `N` | No Denial | 764,565 | 82.57% |
+| `P` | Partial Denial | 97,757 | 10.56% |
+| `Z` | Zero Payment | 48,946 | 5.29% |
+| `F` | Full Denial | 14,747 | 1.59% |
 
+**Multi-Label Target**: Combined `target1–target4`, encoded with `MultiLabelBinarizer` → **926,015 × 26** binary matrix.
 
-
-## 🎯 Target Engineering
-
-### Binary Target (DenialFlag)
-- Cleaned null values
-- Converted to integer (0/1)
-
-
-
-### Multi-Class Target (MultiFlag)
-
-| Class | Meaning | Proportion |
-|------|--------|-----------|
-| N | No denial | 82.56% |
-| P | Partial | 10.56% |
-| Z | Zero payment | 5.28% |
-| F | Full denial | 1.59% |
-
-
-
-### Multi-Label Targets
-- Combined `target1–target4`
-- Applied **MultiLabelBinarizer**
-- Total labels: **26**
-
-
+---
 
 ## ⚙️ Feature Engineering
 
-### 🔹 Frequency Encoding
-Applied instead of one-hot encoding:
+### 🔢 Frequency Encoding (over One-Hot Encoding)
 
-**Columns:**
-- Clinic, Service, CPTCode, Payer, Provider,
-BillingProviderNPI, ClaimFacilityNPI, eligStatus,
-tpcliStrModifier, f21diag1
+Applied to 10 high-cardinality categorical columns:
 
-
-
-### 🔹 Date Features Created
-- service_year
-- service_month
-- billing_year
-- billing_month
-- patient_age
-
-
-
-### 🔹 Final Feature Set
-- Total features: **23**
-- Fully numeric
-
-
-
-## 🔀 Train-Test Split
-
-Used stratified splitting:
-```python
-train_test_split(..., stratify=y)
+```
+Clinic · Service · CPTCode · Payer · Provider
+BillingProviderNPI · ClaimFacilityNPI · eligStatus
+tpcliStrModifier · f21diag1
 ```
 
-Why?
+| Why NOT One-Hot? | Why Frequency Encoding? |
+|-----------------|------------------------|
+| Explodes dimensionality | Keeps features compact |
+| Creates sparse matrices | Preserves category distribution |
+| Inefficient for tree models | Works natively with RF/XGBoost |
 
-- Maintains class distribution
-- Prevents bias in imbalanced datasets
+### 📅 Date-Derived Features
 
-## 🧠 MODEL 1: Binary Classification
-Model: Random Forest
+```python
+service_year, service_month      # Seasonal billing patterns
+billing_year, billing_month      # Submission timing
+patient_age                      # Risk stratification
+```
 
-### Performance
-| Metric    | Value |
-| --------- | ----- |
-| Accuracy  | 0.97  |
-| Precision | 0.88  |
-| Recall    | 0.92  |
-| F1 Score  | 0.90  |
-| ROC-AUC   | 0.986 |
+---
 
-### Threshold Tuning
-| Threshold | Recall   | Precision |
-| --------- | -------- | --------- |
-| 0.3       | **0.92** | 0.88      |
-| 0.4       | 0.91     | 0.91      |
-| 0.5       | 0.89     | 0.94      |
-| 0.6       | 0.88     | 0.95      |
+## 🧠 Models & Results
 
-Final choice: 0.3 (better recall)
+### 🔵 Model 1 — Binary Classification (Denial Flag)
 
-## 🧠 MODEL 2: Multi-Class Classification
+**Algorithm:** Random Forest Classifier (`n_estimators=100`)
 
-### Model comparision
+**Strategy:** Threshold tuning to maximize recall — catching more denied claims is more critical than avoiding false alarms.
 
-| Model         | Accuracy | Precision (Macro) | Recall (Macro) | F1 (Macro) |
-| ------------- | -------- | ----------------- | -------------- | ---------- |
-| Random Forest | **0.96** | 0.88              | **0.81**       | **0.84**   |
-| XGBoost       | 0.95     | 0.82              | 0.69           | 0.75       |
-| MLP           | 0.93     | 0.80              | 0.67           | 0.73       |
+| Metric | Value |
+|--------|-------|
+| Accuracy | **0.97** |
+| Precision | 0.88 |
+| Recall | **0.92** |
+| F1 Score | 0.90 |
+| ROC-AUC | **0.986** |
 
-### 🔍 Interpretation
-#### Random Forest
-- Best balance across all metrics
-- Handles imbalance better
-#### XGBoost
-- Good accuracy but poor minority recall
-#### MLP
-- Less stable, weaker generalization
+#### Threshold Analysis
 
-### Final Model: Random Forest
+| Threshold | Recall | Precision | Trade-off |
+|-----------|--------|-----------|-----------|
+| 0.3 | **0.92** | 0.88 | ✅ Selected — maximizes recall |
+| 0.4 | 0.91 | 0.91 | Balanced |
+| 0.5 | 0.89 | 0.94 | Default |
+| 0.6 | 0.88 | 0.95 | High precision |
 
-- Highest macro F1 (important for imbalance)
-- Better recall for minority classes (F, Z)
-- More stable and interpretable
+> **Decision:** Threshold **0.3** selected. In claims processing, missing a real denial (false negative) is more costly than a false alarm — so recall is prioritized.
 
-## 🧠 MODEL 3: Multi-Label Classification
+## 📈 Feature Importance — Binary Model
+Derived from the Random Forest binary classification model:
 
-### Model Comparision
-| Model             | Micro F1 | Macro F1 | Samples F1 | Precision (Micro) | Recall (Micro) |
-| ----------------- | -------- | -------- | ---------- | ----------------- | -------------- |
-| Binary Relevance  | 0.87     | 0.65     | 0.20       | 0.90              | 0.83           |
-| Classifier Chains | **0.87** | **0.67** | 0.20       | 0.90              | **0.84**       |
+| Rank | Feature | Importance | Insight |
+|------|---------|------------|---------|
+| 1 | `Payer` | 0.250 | Strongest predictor — payer policies dominate |
+| 2 | `AmountCharged` | 0.149 | Higher charges correlate with denial risk |
+| 3 | `service_month` | 0.077 | Seasonal patterns in claim outcomes |
+| 4 | `Provider` | 0.077 | Provider-level denial history matters |
+| 5 | `Service` | 0.066 | Service type eligibility rules |
+| 6 | `Clinic` | 0.052 | Clinic-level billing behavior |
+| 7 | `DaysBetServiceToBilling` | 0.051 | Delayed billing increases denial risk |
+| 8 | `tpcliStrPOS` | 0.046 | Place of service affects coverage |
+| 9 | `CPTCode` | 0.045 | Procedure code determines eligibility |
+| 10 | `ClaimFacilityNPI` | 0.040 | Facility-level risk signal |
 
-### 🔍 Interpretation
-- Micro F1 same → overall performance similar
-- Macro F1 higher in CC → better for rare labels
-- Recall higher in CC → better detection
+---
 
-### ✅ Final Model: Classifier Chains
+### 🟡 Model 2 — Multi-Class Classification (Denial Type)
 
-Why selected:
+**Target Classes:** `F` (Full) · `N` (None) · `P` (Partial) · `Z` (Zero Payment)
 
-- Captures label dependencies
-- Better macro performance
-- More realistic modeling of denial reasons
+#### Model Comparison
 
-## Feature Engineering
+| Model | Accuracy | Precision (Macro) | Recall (Macro) | F1 (Macro) |
+|-------|----------|-------------------|----------------|------------|
+| ✅ **Random Forest** | **0.96** | **0.88** | **0.81** | **0.84** |
+| XGBoost | 0.95 | 0.82 | 0.69 | 0.75 |
+| MLP (Neural Net) | 0.93 | 0.80 | 0.67 | 0.73 |
 
-### Date Features
-- service_month, billing_month → capture seasonal trends  
-- patient_age → important risk factor  
-- billing delay → operational inefficiency indicator
+#### Per-Class Performance (Random Forest)
 
-### Frequency Encoding
-Why NOT one-hot?
-- Too many categories → huge dimensionality
-- Sparse matrix → inefficient
+| Class | Precision | Recall | F1 | Support |
+|-------|-----------|--------|----|---------|
+| F (Full Denial) | 0.84 | 0.66 | 0.74 | 2,949 |
+| N (No Denial) | 0.98 | 0.99 | 0.98 | 152,913 |
+| P (Partial) | 0.93 | 0.94 | 0.93 | 19,552 |
+| Z (Zero Pay) | 0.78 | 0.65 | 0.71 | 9,789 |
 
-Why frequency encoding?
-- Preserves distribution
-- Efficient for large datasets
-- Works well with tree models
+#### Why Random Forest Won
 
-## Confusion Matrix Insights
+```
+✅ Highest macro F1 — critical for imbalanced multi-class problems
+✅ Better recall on minority classes (F, Z)
+✅ More stable and interpretable than boosting/neural net
+✅ Handles imbalance natively via class_weight="balanced"
+```
+## 📈 Feature Importance
 
-- Strong bias toward majority class (N)
-- Minority classes (F, Z) often misclassified
-Indicates:
-- Class imbalance challenge
-- Need for better minority handling
+Derived from the Random Forest multi-class model:
 
-## Feature Importance Insights
-- Payer
-- AmountCharged
-- service_month
-- DaysBetServiceToBilling
-- Provider
-  
-### Interpretation
-- Financial + payer features dominate decisions
-- Temporal patterns influence claim outcomes
-- Some features had near-zero importance → possible feature reduction
+| Rank | Feature | Importance | Insight |
+|------|---------|------------|---------|
+| 1 | `Payer` | 0.203 | Payer rules drive denials most |
+| 2 | `AmountCharged` | 0.173 | Financial thresholds matter |
+| 3 | `service_month` | 0.093 | Seasonal claim patterns |
+| 4 | `Service` | 0.065 | Service type eligibility |
+| 5 | `DaysBetServiceToBilling` | 0.065 | Late billing → higher denial |
+| 6 | `Provider` | 0.063 | Provider-level risk |
+| 7 | `billing_month` | 0.049 | Submission timing effects |
+
+> ⚠️ Features `f21diag1`, `AuthStatus`, and `patient_age` showed near-zero importance — candidates for removal in future iterations.
+
+---
+
+### 🟢 Model 3 — Multi-Label Classification (Denial Reasons)
+
+**Setup:** 26 possible denial reason labels, any combination can apply to a single claim.
+
+#### Model Comparison
+
+| Model | Micro F1 | Macro F1 | Recall (Micro) | Precision (Micro) |
+|-------|----------|----------|----------------|-------------------|
+| Binary Relevance | 0.87 | 0.65 | 0.83 | 0.90 |
+| ✅ **Classifier Chains** | **0.87** | **0.67** | **0.84** | 0.90 |
+
+#### Why Classifier Chains?
+
+```
+✅ Captures label dependencies (e.g., label 23 often co-occurs with label 31)
+✅ Better Macro F1 → improved performance on rare denial codes
+✅ Higher recall → fewer missed denial reasons
+✅ More realistic — denial reasons in practice are often correlated
+```
+## 📈 Feature Importance — Multi-Label Model
+Derived from the Classifier Chains (Random Forest base) multi-label model:
+
+| Rank | Feature | Importance | Insight |
+|------|---------|------------|---------|
+| 1 | `AmountCharged` | 0.190 | Billing amount is the top driver of denial reasons |
+| 2 | `Payer` | 0.150 | Payer-specific rules determine denial codes |
+| 3 | `service_year` | 0.087 | Year-level policy changes affect reason codes |
+| 4 | `SameDayCli` | 0.076 | Same-day claims carry distinct denial patterns |
+| 5 | `billing_year` | 0.065 | Billing year reflects regulatory environment |
+| 6 | `Provider` | 0.046 | Provider behavior influences reason type |
+| 7 | `Service` | 0.045 | Service category tied to specific denial codes |
+| 8 | `CPTCode` | 0.032 | Procedure-level eligibility mismatches |
+| 9 | `tpcliStrModifier` | 0.029 | Billing modifiers affect reason assignment |
+| 10 | `Clinic` | 0.026 | Clinic-level patterns in denial reasons |
+
+---
+
+## ▶️ How to Run
+
+### 1. Install Dependencies
+
+```bash
+pip install pandas numpy scikit-learn xgboost joblib matplotlib seaborn
+```
+
+### 2. Place Dataset
+
+```
+project/
+└── ClaimDenialInputMultiLabel.csv   ← your raw input file
+```
+
+### 3. Run the Notebook
+
+```bash
+jupyter notebook checkpoint4.ipynb
+```
+
+### 4. Saved Artifacts
+
+After training, the following files are saved:
+
+| File | Contents |
+|------|----------|
+| `binary_model.pkl` | Random Forest — Denial Flag |
+| `multiclass_model.pkl` | Random Forest — Denial Type |
+| `multilabel_model.pkl` | Classifier Chains — Denial Reasons |
+| `label_encoder.pkl` | MultiFlag label encoder |
+| `mlb.pkl` | MultiLabelBinarizer (26 labels) |
+| `imputer_ml.pkl` | Mean imputer for missing values |
+| `freq_maps.pkl` | Frequency encoding maps |
+
+---
+
+## 🗂️ Project Structure
+
+```
+claim-denial-prediction/
+│
+├── 📓 checkpoint4.ipynb     # Full pipeline notebook
+├── 📄 README.md                         # This file
+│
+├── 🗃️ Data
+│   └── ClaimDenialInputMultiLabel.csv   # Raw input (1M rows)
+│
+└── 🤖 Saved Models
+    ├── binary_model.pkl
+    ├── multiclass_model.pkl
+    ├── multilabel_model.pkl
+    ├── label_encoder.pkl
+    ├── mlb.pkl
+    ├── imputer_ml.pkl
+    └── freq_maps.pkl
+```
+
+---
+
+## 🔑 Key Design Decisions
+
+| Decision | Rationale |
+|----------|-----------|
+| Frequency encoding over one-hot | Avoids dimensionality explosion with 10+ high-cardinality columns |
+| Stratified train-test split | Preserves class ratios for imbalanced targets |
+| Threshold 0.3 for binary model | Prioritizes recall — missing a denied claim is costlier than a false alarm |
+| `class_weight="balanced"` | Compensates for severe class imbalance (F: 1.6% of data) |
+| Classifier Chains over Binary Relevance | Captures real-world correlations between denial reason codes |
+
+---
+
+## ⚠️ Limitations & Future Work
+
+- **Low Samples F1 (0.20)** on multi-label model — many claims have no denial reasons labeled, inflating denominator
+- **Minority class recall** for `F` and `Z` can be improved with SMOTE or cost-sensitive learning
+- **Near-zero importance features** (`f21diag1`, `AuthStatus`, `patient_age`) — worth removing in
+
+---
+
