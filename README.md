@@ -1,5 +1,5 @@
 
-# 📌 Claim Denial Prediction System
+#  Claim Denial Prediction System
 
 ## 🚀 Overview
 
@@ -27,24 +27,24 @@ The system processes raw claim data, performs feature engineering, and uses mult
 
 ---
 
-## 🧹 Data Preprocessing
+##  Data Preprocessing
 
-### 🔴 Removing Data Leakage
+###  Removing Data Leakage
 Removed columns that directly reveal outcomes:
 TotalPaid, TotalAdj, Balance, CltResp, cliANSI1, cliANSI2, lastActDt
 
 
 
-### 🔴 Removing Identifiers
+###  Removing Identifiers
 TPCLIID, LIATPCLIid, ClaimID, ClientID
 
 
-### 🔴 Date Processing
+###  Date Processing
 Converted:ServiceDt, ClaimBillDate, f11insdob
 
 
 
-### 🔴 Numeric Conversion
+###  Numeric Conversion
 Handled monetary and numeric fields using coercion.
 
 
@@ -156,7 +156,7 @@ Final choice: 0.3 (better recall)
 #### MLP
 - Less stable, weaker generalization
 
-### ✅ Final Model: Random Forest
+### Final Model: Random Forest
 
 - Highest macro F1 (important for imbalance)
 - Better recall for minority classes (F, Z)
