@@ -11,7 +11,6 @@ This project builds an end-to-end machine learning pipeline to predict:
 
 The system processes raw claim data, performs feature engineering, and uses multiple models to generate structured predictions.
 
----
 
 ## 📊 Dataset
 
@@ -25,7 +24,7 @@ The system processes raw claim data, performs feature engineering, and uses mult
 - Diagnosis codes
 - Service & billing dates
 
----
+
 
 ##  Data Preprocessing
 
@@ -56,7 +55,7 @@ Handled monetary and numeric fields using coercion.
 - Cleaned null values
 - Converted to integer (0/1)
 
----
+
 
 ### Multi-Class Target (MultiFlag)
 
@@ -67,14 +66,14 @@ Handled monetary and numeric fields using coercion.
 | Z | Zero payment | 5.28% |
 | F | Full denial | 1.59% |
 
----
+
 
 ### Multi-Label Targets
 - Combined `target1–target4`
 - Applied **MultiLabelBinarizer**
 - Total labels: **26**
 
----
+
 
 ## ⚙️ Feature Engineering
 
@@ -86,7 +85,7 @@ Applied instead of one-hot encoding:
 BillingProviderNPI, ClaimFacilityNPI, eligStatus,
 tpcliStrModifier, f21diag1
 
----
+
 
 ### 🔹 Date Features Created
 - service_year
@@ -95,13 +94,13 @@ tpcliStrModifier, f21diag1
 - billing_month
 - patient_age
 
----
+
 
 ### 🔹 Final Feature Set
 - Total features: **23**
 - Fully numeric
 
----
+
 
 ## 🔀 Train-Test Split
 
@@ -214,6 +213,7 @@ Indicates:
 - service_month
 - DaysBetServiceToBilling
 - Provider
+  
 ### Interpretation
 - Financial + payer features dominate decisions
 - Temporal patterns influence claim outcomes
