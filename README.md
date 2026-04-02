@@ -343,6 +343,83 @@ claim-denial-prediction/
 | Classifier Chains over Binary Relevance | Captures real-world correlations between denial reason codes |
 
 ---
+## 🌐 REST API — FastAPI Inference Server
+
+The trained models are served via a FastAPI application (`app.py`), enabling real-time claim denial predictions through a simple HTTP interface.
+
+### Running the Server
+```bash
+uvicorn app:app --reload
+```
+
+### Endpoints
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET` | `/` | Health check — confirms API is running |
+| `POST` | `/predict` | Submit a claim and get full predictions |
+
+### `POST /predict` — Request Body
+
+Send a raw claim record as JSON. Dates are parsed and all preprocessing (frequency encoding, feature alignment) happens server-side.
+```json
+{
+  "Clinic": "CLN_13838227",
+  "Service": "Methadone Maintenance Week",
+  "AmountCharged": 297.61,
+  "CPTCode": "H0020",
+  "Payer": "PayerName",
+  "Provider": "ProviderName",
+  "BillingProviderNPI": "1234567890",
+  "ClaimFacilityNPI": "0987654321",
+  "AuthStatus": 1,
+  "eligStatus": "Active",
+  "CoPay": 0.0,
+  "Deduc": 0.0,
+  "CoIns": 0.0,
+  "SameDayCli": 0,
+  "DaysBetServiceToBilling": 1,
+  "tpcliStrModifier": null,
+  "tpcliStrPOS": 11,
+  "f21diag1": "F1120",
+  "ServiceDt": "2025-06-22",
+  "ClaimBillDate": "2025-04-06",
+  "f11insdob": "1985-03-15"
+}
+```
+
+### `POST /predict` — Response
+
+All three model predictions are returned in a single response:
+```json
+{
+  "denial_flag": 1,
+  "denial_type": "P",
+  "denial_reasons": ["13", "23", "31"]
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `denial_flag` | `int` | `1` = claim likely denied, `0` = likely paid |
+| `denial_type` | `str` | `N` / `P` / `Z` / `F` — denial category |
+| `denial_reasons` | `list[str]` | One or more denial reason codes (up to 26 possible) |
+
+### Preprocessing Pipeline (Server-Side)
+
+The API automatically handles all transformations before inference:
+```
+Raw JSON Input
+      │
+      ├── Date parsing → service_year, service_month, billing_year, billing_month, patient_age
+      ├── Frequency encoding → maps categorical values using training distributions
+      ├── Column alignment → fills missing fields with 0
+      │
+      ├──▶ Binary Model   → denial_flag
+      ├──▶ Multi-class    → denial_type
+      └──▶ Classifier Chains → denial_reasons
+```
+---
 
 ## ⚠️ Limitations & Future Work
 
